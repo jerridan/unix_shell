@@ -1,0 +1,14 @@
+//Unwanted C files
+*.o
+*.a
+*.class
+
+//Executables
+client/client
+
+//Vagrant
+Vagrantfile
+.vagrant
+
+//Other
+.DS_Store
