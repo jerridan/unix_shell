@@ -24,6 +24,9 @@
 
 int main();
 
+// Processes command-line input into separate arguments
+char** process_input(char *input);
+
 // Returns the name of the user executing the terminal
 char* get_username();
 

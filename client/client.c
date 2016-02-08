@@ -21,9 +21,8 @@ int main() {
 
   } else if(pid_first_child > 0) { // Parent process
 
-    wait_for_first_child();  
+    wait_for_first_child();
 
-    syslog(LOG_DEBUG, "Exiting client");
     closelog();
     exit(EXIT_SUCCESS);
 
@@ -35,9 +34,57 @@ int main() {
 
     // Read input from terminal
     char *input = read_input();
-    syslog(LOG_DEBUG, "User input: %s", input);
+    printf("%s", input);
+
+    // Process the input into arguments
+    char **args = process_input(input);
+    int i = 0;
+    while(NULL != args[i]) {
+      syslog(LOG_DEBUG, "Argument %d: %s", i, args[i]);
+      i++;
+    }
+
+    free(username);
     exit(EXIT_SUCCESS);
   }
+}
+
+// Processes command-line input into separate arguments
+char** process_input(char *input) {
+  // Begin with small buffer, will realloc if needed
+  const int buffer_increment = 10;
+  int buffer_size = buffer_increment;
+
+  // Array of string token arguments
+  char **args = calloc(buffer_size, sizeof(char*));
+
+  // Input will be separated by whitespace, newlines and returns
+  const char separator[4] = " \n\r";
+  char *token = NULL; // Current string token
+  // int token_size;     // Size of current token
+  int num_args = 0;   // Number of arguments read
+  // int num_bytes = 0;  // Number of bytes read
+  
+  // Split input into arguments
+  token = strtok(input, separator);
+  while(NULL != token) {
+    // token_size = strlen(token) + 1;
+    // While the buffer is not large enough, increase size
+    // while(num_bytes + token_size > buffer_size) {
+    //   buffer_size += buffer_increment;
+    //   args = realloc(args, buffer_size * sizeof(char*));
+    // }
+    if(num_args > buffer_size) {
+      buffer_size += buffer_increment;
+      args = realloc(args, buffer_size * sizeof(char*));
+    }
+    // strcpy(args[num_args++], token);
+    args[num_args++] = token;
+    // num_bytes += token_size;
+    token = strtok(NULL, separator);
+  }
+
+  return args;
 }
 
 // Returns the name of the user executing the terminal
@@ -59,37 +106,13 @@ char* get_username() {
 
 // Returns a line of input from the terminal
 char* read_input() {
-  const int buffer_increment = 15;
-  int buffer_size = buffer_increment;               // Buffer size
-  int bytes_read = 0; // Number of bytes read from input
-  char *buffer = calloc(buffer_size, sizeof(char)); // Input buffer
-  if(NULL == buffer) {
-    handle_memory_error();
-  }
-  char current; // Current char being read from input
 
-  do {
-    current = getchar();
-    if(bytes_read == buffer_size) {
-      // If buffer is full, reallocate more space
-      buffer = realloc(buffer, bytes_read + buffer_increment);
+  // Buffer will be allocated by getline
+  char *buffer = NULL;
+  size_t buffer_size = 0;
 
-      if(NULL == buffer) {
-        handle_memory_error();
-      }
-
-      buffer_size += buffer_increment; // Update buffer size
-    }
-    buffer[bytes_read] = current;
-    bytes_read++;
-
-  } while (EOF != current && '\n' != current);
-
-  // Replace EOF or newline with string terminator
-  buffer[--bytes_read] = '\0';
-
-  // Remove any empty space on the buffer
-  buffer = realloc(buffer, bytes_read);
+  // Read a line from standard input
+  getline(&buffer, &buffer_size, stdin);
 
   return buffer;
 }
@@ -99,7 +122,7 @@ void wait_for_first_child() {
   int status; // Status of first child process
   pid_t wpid; // PID returned by wait
 
-  // Block SIGINT for parent process
+  // Ignore SIGINT for parent process
   struct sigaction new_action;
   memset(&new_action, 0, sizeof(new_action));
   new_action.sa_handler = SIG_IGN;
