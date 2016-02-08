@@ -14,14 +14,30 @@ int main() {
   openlog("shell_client", LOG_PERROR | LOG_PID | LOG_NDELAY, LOG_USER);
   setlogmask(LOG_UPTO(LOG_DEBUG));
 
-  // Print terminal prompt
-  char *username = get_username();
-  printf("%s> ", username);
+  // Create first child process - parent of all other processes
+  pid_t pid_first_child = fork();
+  if(pid_first_child < 0) {
+    handle_fork_error();
 
-  // Read input from terminal
-  char *input = read_input();
-  syslog(LOG_DEBUG, "User input: %s", input);
-  exit(EXIT_SUCCESS);
+  } else if(pid_first_child > 0) { // Parent process
+
+    wait_for_first_child();  
+
+    syslog(LOG_DEBUG, "Exiting client");
+    closelog();
+    exit(EXIT_SUCCESS);
+
+  } else { // Child process
+
+    // Print terminal prompt
+    char *username = get_username();
+    printf("%s> ", username);
+
+    // Read input from terminal
+    char *input = read_input();
+    syslog(LOG_DEBUG, "User input: %s", input);
+    exit(EXIT_SUCCESS);
+  }
 }
 
 // Returns the name of the user executing the terminal
@@ -47,6 +63,9 @@ char* read_input() {
   int buffer_size = buffer_increment;               // Buffer size
   int bytes_read = 0; // Number of bytes read from input
   char *buffer = calloc(buffer_size, sizeof(char)); // Input buffer
+  if(NULL == buffer) {
+    handle_memory_error();
+  }
   char current; // Current char being read from input
 
   do {
@@ -56,8 +75,7 @@ char* read_input() {
       buffer = realloc(buffer, bytes_read + buffer_increment);
 
       if(NULL == buffer) {
-        syslog(LOG_ERR, "Memory allocation error. Aborting.");
-        exit(EXIT_FAILURE);
+        handle_memory_error();
       }
 
       buffer_size += buffer_increment; // Update buffer size
@@ -76,21 +94,62 @@ char* read_input() {
   return buffer;
 }
 
+// Sets parent to wait for first child process to execute
+void wait_for_first_child() {
+  int status; // Status of first child process
+  pid_t wpid; // PID returned by wait
 
+  // Block SIGINT for parent process
+  struct sigaction new_action;
+  memset(&new_action, 0, sizeof(new_action));
+  new_action.sa_handler = SIG_IGN;
+  sigaction(SIGINT, &new_action, NULL);
 
+  do {
+    // Wait for child to finish
+    wpid = wait(&status);
 
+    if(wpid == -1) {
+      handle_wait_error();
+    }
 
+    // Did child exit on its own?
+    if(WIFEXITED(status)) {
+      syslog(LOG_DEBUG, "Child 1 exited, status=%d", WEXITSTATUS(status));
+    }
+    
+    // Was child killed?
+    if(WIFSIGNALED(status)) {
+      syslog(LOG_DEBUG, "Child 1 killed, status=%d", WTERMSIG(status));
+    }
 
+    // Was child stopped?
+    if(WIFSTOPPED(status)) {
+      syslog(LOG_DEBUG, "Child 1 stopped, status=%d", WSTOPSIG(status));
+    }
 
+    // Was child continued?
+    if(WIFCONTINUED(status)) {
+      syslog(LOG_DEBUG, "Child 1 continued");
+    }
 
+  } while(!WIFEXITED(status) && !WIFSIGNALED(status));
+}
 
+// Set up termination signal for first child
+void setup_child_term_signal() {
+  // Actions for connection termination handler
+  struct sigaction new_action;
+  memset(&new_action, 0, sizeof(new_action));
+  new_action.sa_handler = &handle_termination;
+  sigaction(SIGINT, &new_action, NULL);
+}
 
-
-
-
-
-
-
+// Termination handler for interrupt signal (Ctrl+C)
+void handle_termination(int signal) {
+  syslog(LOG_INFO, "Termination requested with signal: %d", signal);
+  abort();
+}
 
 
 

@@ -11,11 +11,16 @@
 #define CLIENT_H
 
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
+
+#include "error_handling.h"
 
 int main();
 
@@ -24,5 +29,14 @@ char* get_username();
 
 // Returns a line of input from the terminal
 char* read_input();
+
+// Sets parent to wait for first child process to execute
+void wait_for_first_child();
+
+// Set up termination signal for first child
+void setup_child_term_signal();
+
+// Termination handler for interrupt signal (Ctrl+C)
+void handle_termination(int signal);
 
 #endif
