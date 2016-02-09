@@ -48,6 +48,119 @@ int main() {
   }
 }
 
+// Returns an array of commands, each to be piped into the next
+char*** get_piping_commands(int num_pipes, char** args) {
+  const int buffer_increment = 10;
+  int buffer_size;
+
+  // Initialize commands array
+  char ***cmds = calloc(num_pipes + 1, sizeof(char**));
+
+  int position = 0;
+  int num_args;
+
+  // Add every command preceding a pipe to the commands array
+  for (int i = 0; i < num_pipes; i++) {
+    buffer_size = buffer_increment;
+    cmds[i] = calloc(buffer_size, sizeof(char*));
+
+    num_args = 0;
+
+    while (0 != strcmp("|", args[position])) {
+      // Reallocate more space if necessary
+      if(num_args == buffer_size) {
+        buffer_size += buffer_increment;
+        cmds[i] = realloc(cmds[i], buffer_size * sizeof(char*));
+      }
+      cmds[i][num_args] = args[position];
+      num_args++;
+      position++;
+    }
+
+    position++; // Skip pipe command, we don't want it
+  }
+
+  // Get the last command
+  buffer_size = buffer_increment;
+  num_args = 0;
+  cmds[num_pipes] = calloc(buffer_size, sizeof(char*));
+  while(NULL != args[position]) {
+    // Reallocate more space if necessary
+    if(num_args == buffer_size) {
+      buffer_size += buffer_increment;
+      cmds[num_pipes] = realloc(cmds[num_pipes], buffer_size * sizeof(char*));
+    }
+    cmds[num_pipes][num_args] = args[position];
+    num_args++;
+    position++;
+  }
+
+  return cmds;
+
+}
+
+// Executes a command that contains pipes
+int handle_pipe_commands(int num_pipes, char **args) {
+  // Get array of commands to pipe
+  char ***cmds = get_piping_commands(num_pipes, args);
+
+  char **command1 = cmds[0];
+  char **command2 = cmds[1];
+
+  int fd[2]; // Holds file descriptors of pipe ends
+  if(pipe(fd) < 0) {
+    syslog(LOG_ERR, "Pipe error. Unable to execute command.");
+    return -1;
+  }
+
+  int pid_child1, pid_child2;
+  pid_child1 = fork();
+
+  if(pid_child1 < 0) {
+    handle_fork_error();
+    return -1;
+  } 
+
+  if(pid_child1 > 0) {
+    pid_child2 = fork();
+    if(pid_child2 < 0) {
+      handle_fork_error();
+      return -1;
+    } 
+  }
+
+  if(pid_child1 > 0 && pid_child2 > 0) { // Parent
+    // Close pipe at both ends, since parent doesn't need them
+    close(fd[0]);
+    close(fd[1]);
+    
+    // Wait for both children
+    for(int i = 0; i < 2; i++) {
+      int wpid = wait(NULL);
+      if(wpid < 0) {
+        handle_wait_error();
+        return -1;
+      }
+    }
+  }
+
+  if(0 == pid_child1) { // Child 1
+    close(fd[0]);
+    if(dup2(fd[1], STDOUT_FILENO) < 0) {
+      syslog(LOG_ERR, "Pipe error");
+    }
+    execvp(command1[0], command1);
+  }
+
+  if(pid_child1 > 0 && pid_child2 == 0) { // Child 2
+    close(fd[1]);
+    dup2(fd[0], STDIN_FILENO);
+    execvp(command2[0], command2);
+  }
+
+  return 0;
+}
+
 // Identifies and executes command arguments
 // Returns -1 on error
 int execute_command(char** args) {
@@ -65,101 +178,10 @@ int execute_command(char** args) {
     }
   }
 
-  if(num_pipes > 0) {
-    const int buffer_increment = 10;
-    for (int i = 0; i < num_pipes; i++) {
-      
-      int buffer_size_1 = buffer_increment;
-      int buffer_size_2 = buffer_increment;
-      int num_args_1 = 0;
-      int num_args_2 = 0;
+  if(num_pipes > 0) { // Executing a command with piping
+    return handle_pipe_commands(num_pipes, args);
 
-      char **command1 = calloc(buffer_size_1, sizeof(char*));
-      char **command2 = calloc(buffer_size_2, sizeof(char*));
-
-      int position = 0;
-
-      while(0 != strcmp("|", args[position])) {
-        // Reallocate more space if necessary
-        if(num_args_1 == buffer_size_1) {
-          buffer_size_1 += buffer_increment;
-          command1 = realloc(command1, buffer_size_1);
-        }
-        command1[position] = args[position];
-        num_args_1++;
-        position++;
-      }
-
-      position++; // Move past pipe argument
-      while(NULL != args[position]) {
-        // Reallocate more space if necessary
-        if(num_args_2 == buffer_size_2) {
-          buffer_size_2 += buffer_increment;
-          command2 = realloc(command2, buffer_size_2);
-        }
-        command2[num_args_2] = args[position];
-        num_args_2++;
-        position++;
-      }
-
-      int fd[2]; // Holds file descriptors of pipe ends
-      if(pipe(fd) < 0) {
-        syslog(LOG_ERR, "Pipe error. Unable to execute command.");
-        return -1;
-      }
-
-      int pid_child1, pid_child2;
-      pid_child1 = fork();
-
-      if(pid_child1 < 0) {
-        handle_fork_error();
-        return -1;
-      } 
-
-      if(pid_child1 > 0) {
-        pid_child2 = fork();
-        if(pid_child2 < 0) {
-          handle_fork_error();
-          return -1;
-        } 
-      }
-
-      if(pid_child1 > 0 && pid_child2 > 0) { // Parent
-        close(fd[0]);
-        close(fd[1]);
-        printf("waiting for children %d and %d\n", pid_child1, pid_child2);
-        int wpid;
-        while((wpid = wait(NULL)) > 0) {
-          fprintf(stderr, "Child %d exited\n", wpid);
-        }
-      }
-
-      if(0 == pid_child1) { // Child 1
-        close(fd[0]);
-        if(dup2(fd[1], STDOUT_FILENO) < 0) {
-          syslog(LOG_ERR, "Pipe error");
-        }
-        // exit(0);
-        execvp(command1[0], command1);
-      }
-
-      if(pid_child1 > 0 && pid_child2 == 0) {
-        close(fd[1]);
-        dup2(fd[0], STDIN_FILENO);
-        // char buf[1];
-        // read(0, &buf, 1);
-        // write(1, &buf, 1);
-        execvp(command2[0], command2);
-        // exit(0);
-        // close(fd[1]);
-        // dup2(fd[0], STDIN_FILENO);
-        // execvp(command2[0], command2);
-      }
-
-      return 0;
-    }
-
-  } else {
+  } else { // Just a regular command to execute
     int child_pid = fork();
     if(child_pid < 0) { // Fork error
       syslog(LOG_ERR, "Fork error. Unable to execute command.");

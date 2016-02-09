@@ -27,6 +27,12 @@ int main();
 // Identifies and executes command arguments
 int execute_command(char** args);
 
+// Returns an array of commands, each to be piped into the next
+char*** get_piping_commands(int num_pipes, char** args);
+
+// Executes a command that contains pipes
+int handle_pipe_commands(int num_pipes, char **args);
+
 // Processes command-line input into separate arguments
 char** process_input(char *input);
 
