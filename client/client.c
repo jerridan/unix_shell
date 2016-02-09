@@ -102,21 +102,61 @@ int execute_command(char** args) {
         position++;
       }
 
-      // Print command 1
-      position = 0;
-      printf("Command 1: \n");
-      while(NULL != command1[position]) {
-        printf("%s ", command1[position++]);
+      int fd[2]; // Holds file descriptors of pipe ends
+      if(pipe(fd) < 0) {
+        syslog(LOG_ERR, "Pipe error. Unable to execute command.");
+        return -1;
       }
-      printf("\n");
 
-      // Print command 2
-      position = 0;
-      printf("Command 2: \n");
-      while(NULL != command2[position]) {
-        printf("%s ", command2[position++]);
+      int pid_child1, pid_child2;
+      pid_child1 = fork();
+
+      if(pid_child1 < 0) {
+        handle_fork_error();
+        return -1;
+      } 
+
+      if(pid_child1 > 0) {
+        pid_child2 = fork();
+        if(pid_child2 < 0) {
+          handle_fork_error();
+          return -1;
+        } 
       }
-      printf("\n");
+
+      if(pid_child1 > 0 && pid_child2 > 0) { // Parent
+        close(fd[0]);
+        close(fd[1]);
+        printf("waiting for children %d and %d\n", pid_child1, pid_child2);
+        int wpid;
+        while((wpid = wait(NULL)) > 0) {
+          fprintf(stderr, "Child %d exited\n", wpid);
+        }
+      }
+
+      if(0 == pid_child1) { // Child 1
+        close(fd[0]);
+        if(dup2(fd[1], STDOUT_FILENO) < 0) {
+          syslog(LOG_ERR, "Pipe error");
+        }
+        // exit(0);
+        execvp(command1[0], command1);
+      }
+
+      if(pid_child1 > 0 && pid_child2 == 0) {
+        close(fd[1]);
+        dup2(fd[0], STDIN_FILENO);
+        // char buf[1];
+        // read(0, &buf, 1);
+        // write(1, &buf, 1);
+        execvp(command2[0], command2);
+        // exit(0);
+        // close(fd[1]);
+        // dup2(fd[0], STDIN_FILENO);
+        // execvp(command2[0], command2);
+      }
+
+      return 0;
     }
 
   } else {
