@@ -29,6 +29,9 @@ int main() {
   } else { // Child process
 
     char *username = get_username();
+    char **history = calloc(KEEP_IN_HISTORY, sizeof(char*));
+    int history_size = 0; // Current size of history buffer
+
     while(1) {
       // Print terminal prompt
       printf("%s> ", username);
@@ -40,11 +43,24 @@ int main() {
         continue;
       }
 
+      // Add command to history
+      if(KEEP_IN_HISTORY == history_size) {
+        free(history[0]);
+        for(int i = 0; i < KEEP_IN_HISTORY; i++) {
+          history[i] = history[i+1];
+        }
+        history[KEEP_IN_HISTORY] = NULL;
+        history_size--;
+      }
+      history[history_size] = calloc(strlen(input) + 1, sizeof(char));
+      strcpy(history[history_size], input);
+      history_size++;
+
       // Process the input into arguments
       char **args = process_input(input);
 
       // Execute command arguments
-      handle_commands(args);
+      handle_commands(args, &history);
     }
 
     free(username);
@@ -193,11 +209,17 @@ int handle_piped_commands(int num_pipes, char **args) {
 
 // Identifies and executes command arguments
 // Returns -1 on error
-int handle_commands(char** args) {
+int handle_commands(char **args, char ***history) {
 
   // Check for exit command
   if(0 == strcmp("exit", args[0])) {
     exit(EXIT_SUCCESS);
+  }
+
+  // Check for history command
+  if(0 == strcmp("history", args[0])) {
+    print_history(*history);
+    return 0;
   }
 
   // Count number of pipes
@@ -243,7 +265,6 @@ char** process_input(char *input) {
     num_args++;
     token = strtok(NULL, separator);
   }
-  free(input);
   return args;
 }
 
@@ -336,6 +357,13 @@ void handle_termination(int signal) {
   abort();
 }
 
+// Prints the command history to stdout
+void print_history(char **history) {
+  syslog(LOG_INFO, "Command history");
+  for(int i = 0; NULL != history[i + 1]; i++) {
+    syslog(LOG_INFO, "%s", history[i]);
+  }
+}
 
 
 

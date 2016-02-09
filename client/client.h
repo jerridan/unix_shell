@@ -22,10 +22,12 @@
 
 #include "error_handling.h"
 
+#define KEEP_IN_HISTORY 11 // 10 + 1, incl history cmd on printout
+
 int main();
 
 // Identifies and executes command arguments
-int handle_commands(char** args);
+int handle_commands(char **args, char ***history);
 
 // Returns an array of commands, each to be piped into the next
 char*** get_piping_commands(int num_pipes, char** args);
@@ -54,5 +56,8 @@ void setup_child_term_signal();
 
 // Termination handler for interrupt signal (Ctrl+C)
 void handle_termination(int signal);
+
+// Prints the command history to stdout
+void print_history(char **history);
 
 #endif
