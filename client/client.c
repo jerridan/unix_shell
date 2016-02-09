@@ -35,12 +35,16 @@ int main() {
 
       // Read input from terminal
       char *input = read_input();
+      // Did the user just hit 'Enter'?
+      if(0 == strcmp(input, "\n")) {
+        continue;
+      }
 
       // Process the input into arguments
       char **args = process_input(input);
 
       // Execute command arguments
-      execute_command(args);
+      handle_commands(args);
     }
 
     free(username);
@@ -99,13 +103,49 @@ char*** get_piping_commands(int num_pipes, char** args) {
 
 }
 
+// Executes a command, given a fd to read from and fd to write to
+// Return -1 on error
+int execute_command(char **cmd, int read_fd, int write_fd) {
+
+  int child_pid = fork();
+  if(child_pid < 0) { // Fork error
+    syslog(LOG_ERR, "Fork error. Unable to execute command.");
+    errno = 0; // Reset errno
+    return -1;
+
+  } else if(child_pid > 0) { // Parent
+    int status; // Status of child process
+    pid_t wpid; // PID returned by wait
+
+    // Wait for child to execute command
+    wpid = wait(&status);
+    if(-1 == wpid) {
+      handle_wait_error();
+      return -1;
+    }
+
+  } else { // Child
+    if(STDIN_FILENO != read_fd) {
+      dup2(read_fd, STDIN_FILENO);
+    }
+    if(STDOUT_FILENO != write_fd) {
+      dup2(write_fd, STDOUT_FILENO);
+    }
+    int result = execvp(cmd[0], cmd);
+    if(result < 0) {
+      syslog(LOG_ERR, "%s", strerror(errno));
+      errno = 0; // Reset errno
+      return -1;
+    }
+  }
+  
+  return 0;
+}
+
 // Executes a command that contains pipes
-int handle_pipe_commands(int num_pipes, char **args) {
+int handle_piped_commands(int num_pipes, char **args) {
   // Get array of commands to pipe
   char ***cmds = get_piping_commands(num_pipes, args);
-
-  char **command1 = cmds[0];
-  char **command2 = cmds[1];
 
   int fd[2]; // Holds file descriptors of pipe ends
   if(pipe(fd) < 0) {
@@ -113,57 +153,47 @@ int handle_pipe_commands(int num_pipes, char **args) {
     return -1;
   }
 
-  int pid_child1, pid_child2;
-  pid_child1 = fork();
-
-  if(pid_child1 < 0) {
-    handle_fork_error();
+  // Execute first command - reads from STDIN
+  int result = execute_command(cmds[0], STDIN_FILENO, fd[1]);
+  if(-1 == result) {
     return -1;
-  } 
+  }
 
-  if(pid_child1 > 0) {
-    pid_child2 = fork();
-    if(pid_child2 < 0) {
-      handle_fork_error();
+  close(fd[1]);         // Close write end
+
+  // Execute any commands in-between pipes
+  for (int i = 1; i < num_pipes; i++) {
+    int temp_fd[2];     // Holds file descriptors of pipe ends
+    if(pipe(temp_fd) < 0) {
+      syslog(LOG_ERR, "Pipe error. Unable to execute command.");
       return -1;
-    } 
-  }
-
-  if(pid_child1 > 0 && pid_child2 > 0) { // Parent
-    // Close pipe at both ends, since parent doesn't need them
-    close(fd[0]);
-    close(fd[1]);
-    
-    // Wait for both children
-    for(int i = 0; i < 2; i++) {
-      int wpid = wait(NULL);
-      if(wpid < 0) {
-        handle_wait_error();
-        return -1;
-      }
     }
-  }
+    fd[1] = temp_fd[1]; // Point to write end of new pipe
 
-  if(0 == pid_child1) { // Child 1
-    close(fd[0]);
-    if(dup2(fd[1], STDOUT_FILENO) < 0) {
-      syslog(LOG_ERR, "Pipe error");
+    result = execute_command(cmds[i], fd[0], fd[1]);
+    if(-1 == result) {
+      return -1;
     }
-    execvp(command1[0], command1);
+
+    close(fd[1]);       // Close write end
+    close(fd[0]);       // Close read end
+    fd[0] = temp_fd[0]; // Point to read end of new pipe
   }
 
-  if(pid_child1 > 0 && pid_child2 == 0) { // Child 2
-    close(fd[1]);
-    dup2(fd[0], STDIN_FILENO);
-    execvp(command2[0], command2);
+  // Execute last command - writes to STDOUT
+  result = execute_command(cmds[num_pipes], fd[0], STDOUT_FILENO);
+  if(-1 == result) {
+    return -1;
   }
+
+  close(fd[0]);
 
   return 0;
 }
 
 // Identifies and executes command arguments
 // Returns -1 on error
-int execute_command(char** args) {
+int handle_commands(char** args) {
 
   // Check for exit command
   if(0 == strcmp("exit", args[0])) {
@@ -179,37 +209,10 @@ int execute_command(char** args) {
   }
 
   if(num_pipes > 0) { // Executing a command with piping
-    return handle_pipe_commands(num_pipes, args);
-
-  } else { // Just a regular command to execute
-    int child_pid = fork();
-    if(child_pid < 0) { // Fork error
-      syslog(LOG_ERR, "Fork error. Unable to execute command.");
-      errno = 0; // Reset errno
-      return -1;
-
-    } else if(child_pid > 0) { // Parent
-      int status; // Status of child process
-      pid_t wpid; // PID returned by wait
-
-      // Wait for child to execute command
-      wpid = wait(&status);
-      if(-1 == wpid) {
-        handle_wait_error();
-        return -1;
-      }
-    } else { // Child
-      int result = execvp(args[0], args);
-      if(result < 0) {
-        syslog(LOG_ERR, "%s", strerror(errno));
-        errno = 0; // Reset errno
-        exit(EXIT_FAILURE);
-      }
-    }
+    return handle_piped_commands(num_pipes, args);
+  } else {            // Just a regular command to execute
+    return execute_command(args, STDIN_FILENO, STDOUT_FILENO);
   }
-
-  
-  return 0;
 }
 
 // Processes command-line input into separate arguments

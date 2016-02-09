@@ -25,13 +25,17 @@
 int main();
 
 // Identifies and executes command arguments
-int execute_command(char** args);
+int handle_commands(char** args);
 
 // Returns an array of commands, each to be piped into the next
 char*** get_piping_commands(int num_pipes, char** args);
 
 // Executes a command that contains pipes
-int handle_pipe_commands(int num_pipes, char **args);
+int handle_piped_commands(int num_pipes, char **args);
+
+// Executes a command, given a fd to read from and fd to write to
+// Return -1 on error
+int execute_command(char **cmd, int read_fd, int write_fd);
 
 // Processes command-line input into separate arguments
 char** process_input(char *input);
