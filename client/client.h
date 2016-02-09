@@ -24,6 +24,9 @@
 
 int main();
 
+// Identifies and executes command arguments
+int execute_command(char** args);
+
 // Processes command-line input into separate arguments
 char** process_input(char *input);
 

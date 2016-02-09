@@ -18,35 +18,136 @@ int main() {
   pid_t pid_first_child = fork();
   if(pid_first_child < 0) {
     handle_fork_error();
+    closelog();
+    exit(EXIT_FAILURE);
 
   } else if(pid_first_child > 0) { // Parent process
-
     wait_for_first_child();
-
     closelog();
     exit(EXIT_SUCCESS);
 
   } else { // Child process
 
-    // Print terminal prompt
     char *username = get_username();
-    printf("%s> ", username);
+    while(1) {
+      // Print terminal prompt
+      printf("%s> ", username);
 
-    // Read input from terminal
-    char *input = read_input();
-    printf("%s", input);
+      // Read input from terminal
+      char *input = read_input();
 
-    // Process the input into arguments
-    char **args = process_input(input);
-    int i = 0;
-    while(NULL != args[i]) {
-      syslog(LOG_DEBUG, "Argument %d: %s", i, args[i]);
-      i++;
+      // Process the input into arguments
+      char **args = process_input(input);
+
+      // Execute command arguments
+      execute_command(args);
     }
 
     free(username);
     exit(EXIT_SUCCESS);
   }
+}
+
+// Identifies and executes command arguments
+// Returns -1 on error
+int execute_command(char** args) {
+
+  // Check for exit command
+  if(0 == strcmp("exit", args[0])) {
+    exit(EXIT_SUCCESS);
+  }
+
+  // Count number of pipes
+  int num_pipes = 0;
+  for (int i = 0; NULL != args[i]; i++) {
+    if(0 == strcmp("|", args[i])) {
+      num_pipes++;
+    }
+  }
+
+  if(num_pipes > 0) {
+    const int buffer_increment = 10;
+    for (int i = 0; i < num_pipes; i++) {
+      
+      int buffer_size_1 = buffer_increment;
+      int buffer_size_2 = buffer_increment;
+      int num_args_1 = 0;
+      int num_args_2 = 0;
+
+      char **command1 = calloc(buffer_size_1, sizeof(char*));
+      char **command2 = calloc(buffer_size_2, sizeof(char*));
+
+      int position = 0;
+
+      while(0 != strcmp("|", args[position])) {
+        // Reallocate more space if necessary
+        if(num_args_1 == buffer_size_1) {
+          buffer_size_1 += buffer_increment;
+          command1 = realloc(command1, buffer_size_1);
+        }
+        command1[position] = args[position];
+        num_args_1++;
+        position++;
+      }
+
+      position++; // Move past pipe argument
+      while(NULL != args[position]) {
+        // Reallocate more space if necessary
+        if(num_args_2 == buffer_size_2) {
+          buffer_size_2 += buffer_increment;
+          command2 = realloc(command2, buffer_size_2);
+        }
+        command2[num_args_2] = args[position];
+        num_args_2++;
+        position++;
+      }
+
+      // Print command 1
+      position = 0;
+      printf("Command 1: \n");
+      while(NULL != command1[position]) {
+        printf("%s ", command1[position++]);
+      }
+      printf("\n");
+
+      // Print command 2
+      position = 0;
+      printf("Command 2: \n");
+      while(NULL != command2[position]) {
+        printf("%s ", command2[position++]);
+      }
+      printf("\n");
+    }
+
+  } else {
+    int child_pid = fork();
+    if(child_pid < 0) { // Fork error
+      syslog(LOG_ERR, "Fork error. Unable to execute command.");
+      errno = 0; // Reset errno
+      return -1;
+
+    } else if(child_pid > 0) { // Parent
+      int status; // Status of child process
+      pid_t wpid; // PID returned by wait
+
+      // Wait for child to execute command
+      wpid = wait(&status);
+      if(-1 == wpid) {
+        handle_wait_error();
+        return -1;
+      }
+    } else { // Child
+      int result = execvp(args[0], args);
+      if(result < 0) {
+        syslog(LOG_ERR, "%s", strerror(errno));
+        errno = 0; // Reset errno
+        exit(EXIT_FAILURE);
+      }
+    }
+  }
+
+  
+  return 0;
 }
 
 // Processes command-line input into separate arguments
@@ -61,29 +162,23 @@ char** process_input(char *input) {
   // Input will be separated by whitespace, newlines and returns
   const char separator[4] = " \n\r";
   char *token = NULL; // Current string token
-  // int token_size;     // Size of current token
   int num_args = 0;   // Number of arguments read
-  // int num_bytes = 0;  // Number of bytes read
   
   // Split input into arguments
   token = strtok(input, separator);
   while(NULL != token) {
-    // token_size = strlen(token) + 1;
-    // While the buffer is not large enough, increase size
-    // while(num_bytes + token_size > buffer_size) {
-    //   buffer_size += buffer_increment;
-    //   args = realloc(args, buffer_size * sizeof(char*));
-    // }
-    if(num_args > buffer_size) {
+    // Increase buffer if necessary
+    if(num_args == buffer_size) {
       buffer_size += buffer_increment;
+      printf("buffer increased to %d\n", buffer_size);
       args = realloc(args, buffer_size * sizeof(char*));
     }
-    // strcpy(args[num_args++], token);
-    args[num_args++] = token;
-    // num_bytes += token_size;
+    args[num_args] = calloc(strlen(token)+1, sizeof(char));
+    strcpy(args[num_args], token);
+    num_args++;
     token = strtok(NULL, separator);
   }
-
+  free(input);
   return args;
 }
 
@@ -132,8 +227,10 @@ void wait_for_first_child() {
     // Wait for child to finish
     wpid = wait(&status);
 
-    if(wpid == -1) {
+    if(-1 == wpid) {
       handle_wait_error();
+      closelog();
+      exit(EXIT_FAILURE);
     }
 
     // Did child exit on its own?

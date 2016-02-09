@@ -7,12 +7,10 @@
  * Defines actions to be taken in case of various errors
 ****************************************************************************/
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <syslog.h>
-
- // Logs a memory allocation error message and terminates the program
-void handle_memory_error();
 
 // Logs a fork error message and terminates the program
 void handle_fork_error();
