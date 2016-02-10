@@ -70,29 +70,34 @@ int main() {
 
 // Executes a command that contains IO-redirection
 int handle_redirected_commands(char **args) {
+  const int buffer_increment = 10;
+  int buffer_size = buffer_increment;
+  int position = 0;
 
-   int position = 0;
+  char **command1 = calloc(buffer_size, sizeof(char*));
+  int num_args = 0;
 
-   char **command1, **command2;
-   int num_args = 0;
-
-  for(int i = 0; 0 != strcmp(">", args[i]); i++ {
+  // Get the input command
+  for(int i = 0; 0 != strcmp(">", args[i]); i++) {
+    // Reallocate more space if necessary
+    if(num_args == buffer_size) {
+      buffer_size += buffer_increment;
+      command1 = realloc(command1, buffer_size * sizeof(char*));
+    }
     command1[num_args] = args[i];
     position++;
+    num_args++;
   }
 
   position++;
+  // Create the output file or truncate to 0 size
+  int fd = open(args[position], O_WRONLY | O_CREAT | O_TRUNC, 0755);
 
-  FILE
+  int result = execute_command(command1, STDIN_FILENO, fd);
 
-  num_args = 0;
-  while(NULL != args[position]) {
-    command2[num_args] = args[position];
-    num_args++;
-    position++;
-  }
+  close(fd);
 
-
+  return result;
 }
 
 // Identifies and executes command arguments
