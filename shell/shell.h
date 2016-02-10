@@ -1,5 +1,5 @@
 /****************************************************************************
- * client.h
+ * shell.h
  *
  * Computer Science 3305b - Spring 2016
  * Author: Jerridan Quiring
@@ -7,18 +7,15 @@
  * Implements a Unix-like terminal
 ****************************************************************************/
 
-#ifndef CLIENT_H
-#define CLIENT_H
+#ifndef SHELL_H
+#define SHELL_H
 
 #include <errno.h>
-#include <fcntl.h>
 #include <signal.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
-#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -26,6 +23,7 @@
 #include "error_handling.h"
 #include "piping.h"
 #include "execution.h"
+#include "io_redirection.h"
 
 #define KEEP_IN_HISTORY 11 // 10 + 1, incl history cmd on printout
 
@@ -33,9 +31,6 @@ int main();
 
 // Identifies and executes command arguments
 int handle_commands(char **args, char ***history);
-
-// Executes a command that contains IO-redirection
-int handle_redirected_commands(char **args);
 
 // Processes command-line input into separate arguments
 char** process_input(char *input);
