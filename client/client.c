@@ -77,8 +77,8 @@ int handle_redirected_commands(char **args) {
   char **command1 = calloc(buffer_size, sizeof(char*));
   int num_args = 0;
 
-  // Get the input command
-  for(int i = 0; 0 != strcmp(">", args[i]); i++) {
+  // Get the command to the left of the redirect
+  for(int i = 0; (0 != strcmp(">", args[i])) && (0 != strcmp("<", args[i])); i++) {
     // Reallocate more space if necessary
     if(num_args == buffer_size) {
       buffer_size += buffer_increment;
@@ -89,13 +89,33 @@ int handle_redirected_commands(char **args) {
     num_args++;
   }
 
+  // Is this an input redirect?
+  bool input_redirect = (0 == strcmp("<", args[position]));
   position++;
-  // Create the output file or truncate to 0 size
-  int fd = open(args[position], O_WRONLY | O_CREAT | O_TRUNC, 0755);
 
-  int result = execute_command(command1, STDIN_FILENO, fd);
+  int result; // Result of command execution
+  if(!input_redirect) {
+    // Create the output file or truncate to 0 size
+    int output_fd = open(args[position], O_WRONLY | O_CREAT | O_TRUNC, 0755);
 
-  close(fd);
+    // Execute command and put output in file
+    result = execute_command(command1, STDIN_FILENO, output_fd);
+    close(output_fd);
+  } else {
+
+    // Input file
+    int input_fd = open(args[position], O_RDONLY, 0755);
+    int output_fd;
+
+    if(NULL == args[++position]) {
+      // Input redirection
+      result = execute_command(command1, input_fd, STDOUT_FILENO);
+    } else {
+      // Input and output redirection
+      output_fd = open(args[++position], O_WRONLY | O_CREAT | O_TRUNC, 0755);
+      result = execute_command(command1, input_fd, output_fd);
+    }
+  }
 
   return result;
 }
@@ -172,6 +192,7 @@ char** process_input(char *input) {
     num_args++;
     token = strtok(NULL, separator);
   }
+  // Resize args array to clear unused space
   return args;
 }
 
@@ -228,22 +249,22 @@ void wait_for_first_child() {
 
     // Did child exit on its own?
     if(WIFEXITED(status)) {
-      syslog(LOG_DEBUG, "Child 1 exited, status=%d", WEXITSTATUS(status));
+      syslog(LOG_DEBUG, "Shell exited, status=%d", WEXITSTATUS(status));
     }
     
     // Was child killed?
     if(WIFSIGNALED(status)) {
-      syslog(LOG_DEBUG, "Child 1 killed, status=%d", WTERMSIG(status));
+      syslog(LOG_DEBUG, "Shell killed, status=%d", WTERMSIG(status));
     }
 
     // Was child stopped?
     if(WIFSTOPPED(status)) {
-      syslog(LOG_DEBUG, "Child 1 stopped, status=%d", WSTOPSIG(status));
+      syslog(LOG_DEBUG, "Shell stopped, status=%d", WSTOPSIG(status));
     }
 
     // Was child continued?
     if(WIFCONTINUED(status)) {
-      syslog(LOG_DEBUG, "Child 1 continued");
+      syslog(LOG_DEBUG, "Shell continued");
     }
 
   } while(!WIFEXITED(status) && !WIFSIGNALED(status));
