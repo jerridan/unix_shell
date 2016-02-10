@@ -11,16 +11,20 @@
 #define CLIENT_H
 
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include "error_handling.h"
+#include "piping.h"
+#include "execution.h"
 
 #define KEEP_IN_HISTORY 11 // 10 + 1, incl history cmd on printout
 
@@ -29,15 +33,8 @@ int main();
 // Identifies and executes command arguments
 int handle_commands(char **args, char ***history);
 
-// Returns an array of commands, each to be piped into the next
-char*** get_piping_commands(int num_pipes, char** args);
-
-// Executes a command that contains pipes
-int handle_piped_commands(int num_pipes, char **args);
-
-// Executes a command, given a fd to read from and fd to write to
-// Return -1 on error
-int execute_command(char **cmd, int read_fd, int write_fd);
+// Executes a command that contains IO-redirection
+int handle_redirected_commands(char **args);
 
 // Processes command-line input into separate arguments
 char** process_input(char *input);
